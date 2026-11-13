@@ -1,4 +1,6 @@
 
+
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -64,9 +66,11 @@ ped_walk <= ped_active;
 -- Turn on DON'T WALK when crossing is not allowed
 ped_dont_walk <= not ped_active;
 
--- Countdown will be added later
-ped_countdown <= (others => '0');
+
+-- Show remaining time when pedestrian crossing is allowed
+ped_countdown <= seconds_remaining when ped_active = '1'
+                 else (others => '0');
+
 
 end Behavioral;
-
 

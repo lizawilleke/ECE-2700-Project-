@@ -1,0 +1,104 @@
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity ped_controller_tb is
+end ped_controller_tb;
+
+architecture Behavioral of ped_controller_tb is
+
+    signal clk               : STD_LOGIC := '0';
+    signal resetn            : STD_LOGIC := '0';
+    signal ped_btn           : STD_LOGIC := '0';
+    signal night_mode        : STD_LOGIC := '0';
+    signal ped_active        : STD_LOGIC := '0';
+    signal ped_request_clear : STD_LOGIC := '0';
+    signal seconds_remaining : unsigned(5 downto 0) := (others => '0');
+
+    signal ped_request       : STD_LOGIC;
+    signal ped_walk          : STD_LOGIC;
+    signal ped_dont_walk     : STD_LOGIC;
+    signal ped_countdown     : unsigned(5 downto 0);
+
+begin
+
+    -- Connect the pedestrian controller
+    uut: entity work.ped_controller
+        port map (
+            clk => clk,
+            resetn => resetn,
+            ped_btn => ped_btn,
+            night_mode => night_mode,
+            ped_active => ped_active,
+            ped_request_clear => ped_request_clear,
+            seconds_remaining => seconds_remaining,
+            ped_request => ped_request,
+            ped_walk => ped_walk,
+            ped_dont_walk => ped_dont_walk,
+            ped_countdown => ped_countdown
+        );
+
+    -- Generate clock with a 10 ns period
+    clk <= not clk after 5 ns;
+
+    -- Test the pedestrian controller
+    process
+    begin
+
+        -- Reset the controller
+        resetn <= '0';
+        wait for 20 ns;
+        resetn <= '1';
+
+        -- Press pedestrian button during daytime
+        ped_btn <= '1';
+        wait for 20 ns;
+        ped_btn <= '0';
+
+        -- Wait to check if request stays stored
+        wait for 20 ns;
+
+       
+-- FSM allows pedestrian crossing
+ped_active <= '1';
+
+-- Test countdown values from timing module
+seconds_remaining <= to_unsigned(10, 6);
+wait for 10 ns;
+
+seconds_remaining <= to_unsigned(9, 6);
+wait for 10 ns;
+
+seconds_remaining <= to_unsigned(8, 6);
+wait for 10 ns;
+
+        -- FSM clears the pedestrian request
+        ped_request_clear <= '1';
+        wait for 10 ns;
+        ped_request_clear <= '0';
+
+        -- Crossing ends
+        ped_active <= '0';
+        wait for 20 ns;
+
+        -- Switch to nighttime mode
+        night_mode <= '1';
+        wait for 20 ns;
+
+        -- Press pedestrian button at night
+        ped_btn <= '1';
+        wait for 20 ns;
+        ped_btn <= '0';
+
+        wait for 30 ns;
+
+        -- Clear nighttime request
+        ped_request_clear <= '1';
+        wait for 10 ns;
+        ped_request_clear <= '0';
+
+        wait;
+    end process;
+
+end Behavioral;

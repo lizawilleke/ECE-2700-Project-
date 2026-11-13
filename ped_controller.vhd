@@ -57,9 +57,16 @@ begin
     -- Send stored request to main FSM
     ped_request <= request_reg;
 
-    -- Temporary outputs until WALK logic is added
-    ped_walk <= '0';
-    ped_dont_walk <= '1';
-    ped_countdown <= (others => '0');
+
+-- Turn on WALK when the main FSM allows crossing
+ped_walk <= ped_active;
+
+-- Turn on DON'T WALK when crossing is not allowed
+ped_dont_walk <= not ped_active;
+
+-- Countdown will be added later
+ped_countdown <= (others => '0');
 
 end Behavioral;
+
+

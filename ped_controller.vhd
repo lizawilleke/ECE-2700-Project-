@@ -1,6 +1,7 @@
 
 
 
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -31,30 +32,39 @@ architecture Behavioral of ped_controller is
 
     -- Stores the pedestrian request
     signal request_reg : STD_LOGIC := '0';
+    -- Stores the previous button value
+    signal btn_previous : STD_LOGIC := '0';
 
 begin
 
-    -- Checks for a button press on each clock cycle
-    process(clk, resetn)
-    begin
+    
+-- Detects a new button press and stores the request
+process(clk, resetn)
 
-        -- Clear request when reset is pressed
-        if resetn = '0' then
+begin
+
+    -- Reset the stored request and previous button value
+    if resetn = '0' then
+        request_reg <= '0';
+        btn_previous <= '0';
+
+    elsif rising_edge(clk) then
+
+        -- Save the current button value for the next clock
+        btn_previous <= ped_btn;
+
+        -- Clear the request when the FSM acknowledges it
+        if ped_request_clear = '1' then
             request_reg <= '0';
 
-        elsif rising_edge(clk) then
+        -- Store request only when button changes from 0 to 1
+        elsif ped_btn = '1' and btn_previous = '0' then
+            request_reg <= '1';
 
-            -- Clear request when FSM acknowledges it
-            if ped_request_clear = '1' then
-                request_reg <= '0';
-
-            -- Store button press during day or night
-            elsif ped_btn = '1' then
-                request_reg <= '1';
-
-            end if;
         end if;
-    end process;
+    end if;
+end process;
+
 
     -- Send stored request to main FSM
     ped_request <= request_reg;
@@ -73,4 +83,3 @@ ped_countdown <= seconds_remaining when ped_active = '1'
 
 
 end Behavioral;
-

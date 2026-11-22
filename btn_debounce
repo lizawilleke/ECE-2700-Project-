@@ -1,0 +1,79 @@
+
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+-- Button Debounce
+-- This module removes unwanted signals caused by
+-- the physical pedestrian button bouncing.
+-- It also synchronizes the button with the FPGA clock.
+
+entity btn_debounce is
+    Port (
+        clk     : in STD_LOGIC;  -- 100 MHz clock
+        resetn  : in STD_LOGIC;  -- Reset (active low)
+        btn_in  : in STD_LOGIC;  -- Physical button input
+        btn_out : out STD_LOGIC  -- Clean button output
+    );
+end btn_debounce;
+
+architecture Behavioral of btn_debounce is
+
+    -- Two registers to synchronize the button
+    signal btn_sync1 : STD_LOGIC := '0';
+    signal btn_sync2 : STD_LOGIC := '0';
+
+    -- Stores the stable button value
+    signal btn_stable : STD_LOGIC := '0';
+
+    -- Counts clock cycles to check if button is stable
+    signal count : integer range 0 to 2000000 := 0;
+
+begin
+
+    -- Synchronize the button with the FPGA clock
+    process(clk, resetn)
+    begin
+        if resetn = '0' then
+            btn_sync1 <= '0';
+            btn_sync2 <= '0';
+
+        elsif rising_edge(clk) then
+            btn_sync1 <= btn_in;
+            btn_sync2 <= btn_sync1;
+        end if;
+    end process;
+
+    -- Check that the button stays stable for 20 ms
+    process(clk, resetn)
+    begin
+        if resetn = '0' then
+            count <= 0;
+            btn_stable <= '0';
+
+        elsif rising_edge(clk) then
+
+            -- Reset counter when button matches stable value
+            if btn_sync2 = btn_stable then
+                count <= 0;
+
+            -- Update button after 20 ms of stable input
+          elsif count = 1999999 then
+                btn_stable <= btn_sync2;
+                count <= 0;
+
+            -- Keep counting while button is different
+            else
+                count <= count + 1;
+            end if;
+
+        end if;
+    end process;
+
+    -- Send the clean button signal to pedestrian controller
+    btn_out <= btn_stable;
+
+end Behavioral;

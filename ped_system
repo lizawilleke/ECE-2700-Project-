@@ -1,0 +1,62 @@
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+-- Pedestrian System
+-- Connects the button debounce module
+-- to the pedestrian crossing controller.
+
+entity ped_system is
+    Port (
+        clk               : in STD_LOGIC;
+        resetn            : in STD_LOGIC;
+        ped_btn           : in STD_LOGIC;
+        night_mode        : in STD_LOGIC;
+        ped_active        : in STD_LOGIC;
+        ped_request_clear : in STD_LOGIC;
+        seconds_remaining : in unsigned(5 downto 0);
+
+        ped_request       : out STD_LOGIC;
+        ped_walk          : out STD_LOGIC;
+        ped_dont_walk     : out STD_LOGIC;
+        ped_countdown     : out unsigned(5 downto 0)
+    );
+end ped_system;
+
+architecture Behavioral of ped_system is
+
+    -- Clean button signal from debounce module
+    signal btn_clean : STD_LOGIC;
+
+begin
+
+    -- Remove bouncing from the physical button
+    debounce_inst: entity work.btn_debounce
+        port map (
+            clk     => clk,
+            resetn  => resetn,
+            btn_in  => ped_btn,
+            btn_out => btn_clean
+        );
+
+    -- Connect clean button to pedestrian controller
+    ped_inst: entity work.ped_controller
+        port map (
+            clk               => clk,
+            resetn            => resetn,
+            ped_btn           => btn_clean,
+            night_mode        => night_mode,
+            ped_active        => ped_active,
+            ped_request_clear => ped_request_clear,
+            seconds_remaining => seconds_remaining,
+
+            ped_request       => ped_request,
+            ped_walk          => ped_walk,
+            ped_dont_walk     => ped_dont_walk,
+            ped_countdown     => ped_countdown
+        );
+
+end Behavioral;
+

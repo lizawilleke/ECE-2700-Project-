@@ -31,20 +31,18 @@ entity mode_controller is
 end mode_controller;
 
 architecture Behavioral of mode_controller is
-signal s1, s2 : std_logic := '0';
-
-
+    signal s1 : std_logic := '0';
 begin
     process(clk)
-    begin 
-     if rising_edge(clk) then
-      if resetn = '0' then s1 <= '0'; s2 <= '0';
-      else s1 <= sw_night; s2 <= s1;
-      end if;
-    end if;
-  end process;
-  night_mode <= s2;
+    begin
+        if rising_edge(clk) then
+            if resetn = '0' then
+                s1 <= '0';
+            else
+                s1 <= sw_night;
+            end if;
+        end if;
+    end process;
 
-
-
+    night_mode <= s1;
 end Behavioral;

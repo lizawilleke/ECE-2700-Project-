@@ -1,0 +1,92 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity timing_controller_tb is
+end timing_controller_tb;
+
+architecture sim of timing_controller_tb is
+
+    constant CLK_PERIOD  : time     := 10 ns;
+    constant TB_CLK_FREQ : positive := 10;   -- 10 cycles = 1 "second"
+    constant TB_BITS     : positive := 4;
+    constant TB_FLASH_HZ : positive := 1;    -- half period = 10 / 2 = 5 cycles
+
+    signal clk               : std_logic := '0';
+    signal resetn            : std_logic := '0';
+    signal timer_start       : std_logic := '0';
+    signal timer_duration    : unsigned(TB_BITS-1 downto 0) := (others => '0');
+    signal timer_done        : std_logic;
+    signal seconds_remaining : unsigned(TB_BITS-1 downto 0);
+    signal flash_enable      : std_logic;
+
+begin
+
+    uut : entity work.timing_controller
+        generic map ( CLK_FREQ => TB_CLK_FREQ, DURATION_BITS => TB_BITS,
+                      FLASH_FREQ_HZ => TB_FLASH_HZ )
+        port map ( clk => clk, resetn => resetn,
+                   timer_start => timer_start, timer_duration => timer_duration,
+                   timer_done => timer_done, seconds_remaining => seconds_remaining,
+                   flash_enable => flash_enable );
+
+    clk <= not clk after CLK_PERIOD / 2;
+
+    stim : process
+    begin
+        -- Reset
+        resetn <= '0';
+        wait for 3 * CLK_PERIOD;
+        assert flash_enable = '0' report "Reset: flash_enable should be 0" severity error;
+        resetn <= '1';
+        wait until rising_edge(clk);
+        assert timer_done = '0' report "Idle: timer_done should be 0" severity error;
+
+        -- Flash toggles every 5 cycles on its own (no timer needed)
+        wait until flash_enable = '1' for 8 * CLK_PERIOD;
+        assert flash_enable = '1' report "flash_enable never went high" severity error;
+        wait until flash_enable = '0' for 8 * CLK_PERIOD;
+        assert flash_enable = '0' report "flash_enable never went low" severity error;
+
+        -- 3-second timer
+        wait until rising_edge(clk);
+        timer_duration <= to_unsigned(3, TB_BITS);
+        timer_start    <= '1';
+        wait until rising_edge(clk);
+
+        -- After ~1.5 "seconds" there should be 2 left
+        wait for 15 * CLK_PERIOD;
+        assert seconds_remaining = 2 report "Expected 2 seconds remaining" severity error;
+        assert timer_done = '0'      report "timer_done too early" severity error;
+
+        -- Should finish after 3 "seconds" (30 cycles); allow some margin
+        wait until timer_done = '1' for 50 * CLK_PERIOD;
+        assert timer_done = '1'       report "timer_done never went high" severity error;
+        assert seconds_remaining = 0  report "Expected 0 seconds remaining" severity error;
+
+        -- Drop start: back to idle
+        timer_start <= '0';
+        wait for 3 * CLK_PERIOD;
+        assert timer_done = '0' report "Should return to idle" severity error;
+
+        -- Zero duration: goes straight to done
+        timer_duration <= to_unsigned(0, TB_BITS);
+        timer_start    <= '1';
+        wait for 3 * CLK_PERIOD;
+        assert timer_done = '1' report "Zero duration should give done" severity error;
+
+        timer_start <= '0';
+        wait for 3 * CLK_PERIOD;
+        assert timer_done = '0' report "Should return to idle again" severity error;
+
+        -- Flash is independent of the timer: still toggling after all of the above
+        wait until flash_enable = '1' for 8 * CLK_PERIOD;
+        assert flash_enable = '1' report "flash_enable stopped after timer tests" severity error;
+        wait until flash_enable = '0' for 8 * CLK_PERIOD;
+        assert flash_enable = '0' report "flash_enable stuck high after timer tests" severity error;
+
+        report "timing_controller_tb finished";
+        wait;
+    end process;
+
+end sim;

@@ -1,0 +1,553 @@
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+-- Main Traffic Light FSM
+-- CONTROL UNIT
+--
+-- Controls:
+-- 1. North/South traffic lights
+-- 2. East/West traffic lights
+-- 3. Pedestrian crossing states
+-- 4. Day/night mode transitions
+--
+-- The timing controller handles counters and flashing.
+-- The pedestrian controller stores crossing requests.
+-- The mode controller provides night_mode.
+
+entity traffic_fsm is
+    generic (
+        GREEN_TIME_SEC     : positive := 30;
+        YELLOW_TIME_SEC    : positive := 5;
+        ALL_RED_TIME_SEC   : positive := 2;
+        PED_WALK_TIME_SEC  : positive := 10;
+        PED_CLEAR_TIME_SEC : positive := 3
+    );
+
+    port (
+        -- Clock and reset
+        clk               : in std_logic;
+        resetn            : in std_logic;
+
+        -- From mode_controller
+        night_mode        : in std_logic;
+
+        -- From pedestrian controller
+        ped_request       : in std_logic;
+
+        -- From timing_controller
+        timer_done        : in std_logic;
+        flash_enable      : in std_logic;
+
+        -- To timing_controller
+        timer_start       : out std_logic;
+        timer_duration    : out unsigned(15 downto 0);
+
+        -- To pedestrian controller
+        ped_active        : out std_logic;
+        ped_request_clear : out std_logic;
+
+        -- North/South lights
+        ns_red            : out std_logic;
+        ns_yellow         : out std_logic;
+        ns_green          : out std_logic;
+
+        -- East/West lights
+        ew_red            : out std_logic;
+        ew_yellow         : out std_logic;
+        ew_green          : out std_logic
+    );
+end traffic_fsm;
+
+
+architecture rtl of traffic_fsm is
+
+    --------------------------------------------------
+    -- FSM STATE DEFINITIONS
+    --------------------------------------------------
+
+    type state_type is (
+        S_INIT,
+
+        S_NS_GREEN,
+        S_NS_YELLOW,
+        S_ALL_RED_TO_EW,
+
+        S_EW_GREEN,
+        S_EW_YELLOW,
+        S_ALL_RED_TO_NS,
+
+        S_PED_WALK,
+        S_PED_CLEAR,
+
+        S_NIGHT,
+        S_NIGHT_EXIT_RED
+    );
+
+    --------------------------------------------------
+    -- INTERNAL SIGNALS
+    --------------------------------------------------
+
+    signal current_state : state_type := S_INIT;
+
+    -- Remembers direction after pedestrian crossing
+    -- 1 = East/West next
+    -- 0 = North/South next
+    signal next_ew : std_logic := '0';
+
+    signal timer_start_reg : std_logic := '0';
+
+    signal timer_duration_reg :
+        unsigned(15 downto 0) := (others => '0');
+
+    signal ped_request_clear_reg : std_logic := '0';
+
+begin
+
+    --------------------------------------------------
+    -- OUTPUT ASSIGNMENTS
+    --------------------------------------------------
+
+    timer_start <= timer_start_reg;
+
+    timer_duration <= timer_duration_reg;
+
+    ped_request_clear <= ped_request_clear_reg;
+
+
+    --------------------------------------------------
+    -- PROCESS 1: FSM STATE TRANSITIONS
+    --------------------------------------------------
+
+    process(clk)
+    begin
+
+        if rising_edge(clk) then
+
+            -- Active-low synchronous reset
+            if resetn = '0' then
+
+                current_state <= S_INIT;
+
+                next_ew <= '0';
+
+                timer_start_reg <= '0';
+
+                timer_duration_reg <= (others => '0');
+
+                ped_request_clear_reg <= '0';
+
+            else
+
+                -- Default control pulses
+                timer_start_reg <= '0';
+                ped_request_clear_reg <= '0';
+
+                case current_state is
+
+                    ----------------------------------
+                    -- INITIAL STATE
+                    ----------------------------------
+
+                    when S_INIT =>
+
+                        current_state <= S_NS_GREEN;
+
+                        timer_duration_reg <=
+                            to_unsigned(GREEN_TIME_SEC, 16);
+
+                        timer_start_reg <= '1';
+
+
+                    ----------------------------------
+                    -- NORTH/SOUTH GREEN
+                    ----------------------------------
+
+                    when S_NS_GREEN =>
+
+                        if timer_done = '1' then
+
+                            current_state <= S_NS_YELLOW;
+
+                            timer_duration_reg <=
+                                to_unsigned(YELLOW_TIME_SEC, 16);
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- NORTH/SOUTH YELLOW
+                    ----------------------------------
+
+                    when S_NS_YELLOW =>
+
+                        if timer_done = '1' then
+
+                            current_state <= S_ALL_RED_TO_EW;
+
+                            timer_duration_reg <=
+                                to_unsigned(ALL_RED_TIME_SEC, 16);
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- ALL RED BEFORE EAST/WEST
+                    ----------------------------------
+
+                    when S_ALL_RED_TO_EW =>
+
+                        if timer_done = '1' then
+
+                            if night_mode = '1' then
+
+                                current_state <= S_NIGHT;
+
+                            elsif ped_request = '1' then
+
+                                next_ew <= '1';
+
+                                current_state <= S_PED_WALK;
+
+                                ped_request_clear_reg <= '1';
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        PED_WALK_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            else
+
+                                current_state <= S_EW_GREEN;
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        GREEN_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            end if;
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- EAST/WEST GREEN
+                    ----------------------------------
+
+                    when S_EW_GREEN =>
+
+                        if timer_done = '1' then
+
+                            current_state <= S_EW_YELLOW;
+
+                            timer_duration_reg <=
+                                to_unsigned(YELLOW_TIME_SEC, 16);
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- EAST/WEST YELLOW
+                    ----------------------------------
+
+                    when S_EW_YELLOW =>
+
+                        if timer_done = '1' then
+
+                            current_state <= S_ALL_RED_TO_NS;
+
+                            timer_duration_reg <=
+                                to_unsigned(ALL_RED_TIME_SEC, 16);
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- ALL RED BEFORE NORTH/SOUTH
+                    ----------------------------------
+
+                    when S_ALL_RED_TO_NS =>
+
+                        if timer_done = '1' then
+
+                            if night_mode = '1' then
+
+                                current_state <= S_NIGHT;
+
+                            elsif ped_request = '1' then
+
+                                next_ew <= '0';
+
+                                current_state <= S_PED_WALK;
+
+                                ped_request_clear_reg <= '1';
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        PED_WALK_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            else
+
+                                current_state <= S_NS_GREEN;
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        GREEN_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            end if;
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- PEDESTRIAN WALK
+                    ----------------------------------
+
+                    when S_PED_WALK =>
+
+                        if timer_done = '1' then
+
+                            current_state <= S_PED_CLEAR;
+
+                            timer_duration_reg <=
+                                to_unsigned(
+                                    PED_CLEAR_TIME_SEC, 16
+                                );
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- PEDESTRIAN CLEARANCE
+                    ----------------------------------
+
+                    when S_PED_CLEAR =>
+
+                        if timer_done = '1' then
+
+                            if night_mode = '1' then
+
+                                current_state <= S_NIGHT;
+
+                            elsif next_ew = '1' then
+
+                                current_state <= S_EW_GREEN;
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        GREEN_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            else
+
+                                current_state <= S_NS_GREEN;
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        GREEN_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            end if;
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- NIGHTTIME FLASHING MODE
+                    ----------------------------------
+
+                    when S_NIGHT =>
+
+                        if night_mode = '0' or
+                           ped_request = '1' then
+
+                            current_state <= S_NIGHT_EXIT_RED;
+
+                            timer_duration_reg <=
+                                to_unsigned(
+                                    ALL_RED_TIME_SEC, 16
+                                );
+
+                            timer_start_reg <= '1';
+
+                        end if;
+
+
+                    ----------------------------------
+                    -- NIGHTTIME EXIT: ALL RED
+                    ----------------------------------
+
+                    when S_NIGHT_EXIT_RED =>
+
+                        if timer_done = '1' then
+
+                            if ped_request = '1' then
+
+                                next_ew <= '0';
+
+                                current_state <= S_PED_WALK;
+
+                                ped_request_clear_reg <= '1';
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        PED_WALK_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            elsif night_mode = '1' then
+
+                                current_state <= S_NIGHT;
+
+                            else
+
+                                current_state <= S_NS_GREEN;
+
+                                timer_duration_reg <=
+                                    to_unsigned(
+                                        GREEN_TIME_SEC, 16
+                                    );
+
+                                timer_start_reg <= '1';
+
+                            end if;
+
+                        end if;
+
+                end case;
+
+            end if;
+
+        end if;
+
+    end process;
+
+
+    --------------------------------------------------
+    -- PROCESS 2: TRAFFIC LIGHT OUTPUT LOGIC
+    --------------------------------------------------
+
+    process(current_state, flash_enable)
+    begin
+
+        -- Default outputs: all vehicle lights red
+        ns_red <= '1';
+        ns_yellow <= '0';
+        ns_green <= '0';
+
+        ew_red <= '1';
+        ew_yellow <= '0';
+        ew_green <= '0';
+
+        -- Pedestrian crossing inactive by default
+        ped_active <= '0';
+
+        case current_state is
+
+            ----------------------------------
+            -- NORTH/SOUTH GREEN
+            ----------------------------------
+
+            when S_NS_GREEN =>
+
+                ns_red <= '0';
+                ns_green <= '1';
+
+
+            ----------------------------------
+            -- NORTH/SOUTH YELLOW
+            ----------------------------------
+
+            when S_NS_YELLOW =>
+
+                ns_red <= '0';
+                ns_yellow <= '1';
+
+
+            ----------------------------------
+            -- EAST/WEST GREEN
+            ----------------------------------
+
+            when S_EW_GREEN =>
+
+                ew_red <= '0';
+                ew_green <= '1';
+
+
+            ----------------------------------
+            -- EAST/WEST YELLOW
+            ----------------------------------
+
+            when S_EW_YELLOW =>
+
+                ew_red <= '0';
+                ew_yellow <= '1';
+
+
+            ----------------------------------
+            -- PEDESTRIAN WALK
+            ----------------------------------
+
+            when S_PED_WALK =>
+
+                -- Both traffic directions stay red
+                ped_active <= '1';
+
+
+            ----------------------------------
+            -- NIGHTTIME FLASHING YELLOW
+            ----------------------------------
+
+            when S_NIGHT =>
+
+                ns_red <= '0';
+                ew_red <= '0';
+
+                ns_yellow <= flash_enable;
+                ew_yellow <= flash_enable;
+
+
+            ----------------------------------
+            -- ALL OTHER STATES
+            ----------------------------------
+
+            when others =>
+
+                -- Default outputs stay active:
+                -- North/South red
+                -- East/West red
+                -- Pedestrian inactive
+
+                null;
+
+        end case;
+
+    end process;
+
+end rtl;

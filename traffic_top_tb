@@ -1,0 +1,98 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+-- Self-checking system testbench for traffic_top.
+-- CLK_FREQ is shrunk to 1000 so "1 second" = 1000 clock cycles (10 us).
+-- NOTE: btn_debounce has a hard-coded 20 ms (2,000,000 cycle) filter, so the
+-- button hold below is 30 ms of simulated time. Run for at least 150 ms.
+
+entity traffic_top_tb is
+end traffic_top_tb;
+
+architecture sim of traffic_top_tb is
+
+    signal clk, resetn, sw_night, btn_ped : std_logic := '0';
+    signal ns_red, ns_yellow, ns_green    : std_logic;
+    signal ew_red, ew_yellow, ew_green    : std_logic;
+    signal ped_walk, ped_dont_walk        : std_logic;
+    signal ped_countdown                  : unsigned(5 downto 0);
+    signal done                           : boolean := false;
+
+begin
+
+    dut : entity work.traffic_top
+        generic map ( CLK_FREQ => 1000 )
+        port map (
+            clk => clk, resetn => resetn, sw_night => sw_night, btn_ped => btn_ped,
+            ns_red => ns_red, ns_yellow => ns_yellow, ns_green => ns_green,
+            ew_red => ew_red, ew_yellow => ew_yellow, ew_green => ew_green,
+            ped_walk => ped_walk, ped_dont_walk => ped_dont_walk,
+            ped_countdown => ped_countdown );
+
+    -- 100 MHz clock
+    clk <= not clk after 5 ns when not done else '0';
+
+    -- Safety checks, evaluated continuously
+    safety : process(clk)
+    begin
+        if rising_edge(clk) and resetn = '1' then
+            assert not (ns_green = '1' and ew_red = '0')
+                report "SAFETY: NS green while EW not red" severity error;
+            assert not (ew_green = '1' and ns_red = '0')
+                report "SAFETY: EW green while NS not red" severity error;
+            assert not (ped_walk = '1' and (ns_red = '0' or ew_red = '0'))
+                report "SAFETY: WALK while traffic not stopped" severity error;
+            assert not (ped_walk = '1' and ped_dont_walk = '1')
+                report "SAFETY: WALK and DON'T WALK both on" severity error;
+        end if;
+    end process;
+
+    stim : process
+    begin
+        resetn <= '0';
+        wait for 100 ns;
+        resetn <= '1';
+
+        -- 1. Normal day cycle: NS green first, then EW green
+        wait until ns_green = '1' for 1 ms;
+        assert ns_green = '1' report "FAIL: never reached NS green" severity failure;
+        wait until ew_green = '1' for 1 ms;
+        assert ew_green = '1' report "FAIL: never reached EW green" severity failure;
+        report "PASS: day cycle alternates NS/EW";
+
+        -- 2. Pedestrian request (held 30 ms to pass the 20 ms debounce)
+        btn_ped <= '1';
+        wait for 30 ms;
+        btn_ped <= '0';
+        wait until ped_walk = '1' for 100 ms;
+        assert ped_walk = '1' report "FAIL: WALK never asserted" severity failure;
+        report "PASS: pedestrian WALK served at an all-red";
+        wait until ped_walk = '0' for 1 ms;
+        assert ped_walk = '0' report "FAIL: WALK never ended" severity failure;
+        wait until ns_green = '1' or ew_green = '1' for 1 ms;
+        assert ns_green = '1' or ew_green = '1'
+            report "FAIL: traffic did not resume after crossing" severity failure;
+        report "PASS: traffic resumed after crossing";
+
+        -- 3. Night mode: both directions flash yellow, never green
+        sw_night <= '1';
+        wait until ns_red = '0' and ew_red = '0' and ns_green = '0' and ew_green = '0'
+              for 1 ms;
+        assert ns_red = '0' and ew_red = '0'
+            report "FAIL: did not enter night mode" severity failure;
+        wait for 150 us;  -- 15 simulated seconds: should have flashed
+        report "PASS: entered night mode (check yellow flashing in waveform)";
+
+        -- 4. Back to day: must go through all-red, then green
+        sw_night <= '0';
+        wait until ns_green = '1' for 1 ms;
+        assert ns_green = '1' report "FAIL: did not leave night mode" severity failure;
+        report "PASS: returned to day mode";
+
+        report "ALL TESTS COMPLETE";
+        done <= true;
+        wait;
+    end process;
+
+end sim;
